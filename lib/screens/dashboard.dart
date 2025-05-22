@@ -11,71 +11,75 @@ class Dashboard extends StatefulWidget {
 }
 
 class _DashboardState extends State<Dashboard> {
-  String? _userName;
-  String? _userEmail;
-  String? _joinDate;
+  double? _totalSimpanan;
+  double? _totalPinjaman;
+  bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _fetchUserData();
+    _fetchDashboardData();
   }
 
-  Future<void> _fetchUserData() async {
+  Future<void> _fetchDashboardData() async {
     if (!mounted) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
     final user = supabase.auth.currentUser;
     if (user == null) {
       if (mounted) {
         setState(() {
-          _userName = 'Pengguna tidak login';
-          _userEmail = '';
-          _joinDate = '';
+          _errorMessage = 'Pengguna tidak login. Silakan login kembali.';
+          _totalSimpanan = 0.0;
+          _totalPinjaman = 0.0;
+          _isLoading = false;
         });
       }
       return;
     }
-
     try {
-      final data =
-          await supabase
-              .from('anggota')
-              .select('nama, email, tanggal_masuk')
-              .eq('id_anggota', user.id)
-              .single();
+      final totalSimpananRes = await supabase.rpc(
+        'get_total_simpanan_by_user', // Pastikan nama fungsi ini sesuai
+        params: {'user_id_param': user.id},
+      );
+      final double currentTotalSimpanan =
+          (totalSimpananRes as num?)?.toDouble() ?? 0.0;
+
+      final totalPinjamanRes = await supabase.rpc(
+        'get_total_pinjaman_by_user', // Pastikan nama fungsi ini sesuai
+        params: {'user_id_param': user.id},
+      );
+      final double currentTotalPinjaman =
+          (totalPinjamanRes as num?)?.toDouble() ?? 0.0;
 
       if (mounted) {
         setState(() {
-          _userName = data['nama'] as String?;
-          _userEmail = data['email'] as String?;
-          final rawJoinDate = data['tanggal_masuk'];
-
-          if (rawJoinDate is String) {
-            try {
-              final dateTime = DateTime.parse(rawJoinDate);
-              _joinDate = "${dateTime.day}/${dateTime.month}/${dateTime.year}";
-            } catch (e) {
-              _joinDate = rawJoinDate;
-            }
-          } else {
-            _joinDate = rawJoinDate?.toString();
-          }
+          _totalSimpanan = currentTotalSimpanan;
+          _totalPinjaman = currentTotalPinjaman;
+          _isLoading = false;
         });
       }
     } on PostgrestException catch (error) {
       if (mounted) {
         setState(() {
-          _userName = 'Gagal memuat data';
-          _userEmail = error.message;
-          _joinDate = '';
+          _errorMessage = 'Gagal memuat data: ${error.message}';
+          _totalSimpanan = 0.0;
+          _totalPinjaman = 0.0;
+          _isLoading = false;
         });
       }
     } catch (error) {
       if (mounted) {
         setState(() {
-          _userName = 'Terjadi kesalahan';
-          _userEmail = error.toString();
-          _joinDate = '';
+          _errorMessage = 'Terjadi kesalahan: ${error.toString()}';
+          _totalSimpanan = 0.0;
+          _totalPinjaman = 0.0;
+          _isLoading = false;
         });
       }
     }
@@ -220,83 +224,98 @@ class _DashboardState extends State<Dashboard> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
       color: Colors.white.withOpacity(0.9),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 26),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 24,
+        ), // Adjusted padding
         child:
-            (_userName == null && _userEmail == null)
+            _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _userName == 'Pengguna tidak login' ||
-                              _userName == 'Gagal memuat data' ||
-                              _userName == 'Terjadi kesalahan'
-                          ? 'Info Pengguna'
-                          : 'Selamat datang,',
+                : _errorMessage != null
+                ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Text(
+                      _errorMessage!,
+                      textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey.shade700,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.4,
+                        color: Colors.red.shade700,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                    if (_userName != null &&
-                        !_userName!.contains('tidak login') &&
-                        !_userName!.contains('Gagal') &&
-                        !_userName!.contains('Terjadi'))
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8, bottom: 16),
-                        child: Text(
-                          _userName!,
-                          style: const TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF5409DA),
-                          ),
-                        ),
+                  ),
+                )
+                : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Ringkasan Keuangan',
+                      style: TextStyle(
+                        fontSize: 20,
+                        color: Colors.grey.shade800,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
                       ),
-                    if (_userEmail != null && _userEmail!.isNotEmpty)
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.email_outlined,
-                            size: 20,
-                            color: Colors.grey.shade700,
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Text(
-                              _userEmail!,
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.grey.shade800,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    const SizedBox(height: 14),
-                    if (_joinDate != null && _joinDate!.isNotEmpty)
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.calendar_today_outlined,
-                            size: 20,
-                            color: Colors.grey.shade700,
-                          ),
-                          const SizedBox(width: 14),
-                          Text(
-                            'Bergabung: $_joinDate',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey.shade800,
-                            ),
-                          ),
-                        ],
-                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    _buildFinancialInfoRow(
+                      icon: Icons.account_balance_wallet_outlined,
+                      label: 'Total Simpanan:',
+                      value: _totalSimpanan,
+                      valueColor: Colors.green.shade700,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildFinancialInfoRow(
+                      icon: Icons.request_quote_outlined,
+                      label: 'Total Pinjaman:',
+                      value: _totalPinjaman,
+                      valueColor: Colors.orange.shade800,
+                    ),
                   ],
                 ),
       ),
+    );
+  }
+
+  Widget _buildFinancialInfoRow({
+    required IconData icon,
+    required String label,
+    required double? value,
+    Color valueColor = const Color(0xFF5409DA),
+  }) {
+    // Untuk format mata uang yang lebih baik, pertimbangkan menggunakan package 'intl'
+    // import 'package:intl/intl.dart';
+    // final currencyFormatter = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0);
+    String formatCurrency(double? amount) {
+      if (amount == null) return 'Rp 0';
+      // Format sederhana, ganti dengan package intl untuk produksi
+      return 'Rp ${amount.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}';
+    }
+
+    return Row(
+      children: [
+        Icon(icon, size: 26, color: Colors.grey.shade700),
+        const SizedBox(width: 14),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 17,
+            color: Colors.grey.shade800,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          formatCurrency(value),
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.bold,
+            color: valueColor,
+          ),
+        ),
+      ],
     );
   }
 }
